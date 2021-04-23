@@ -190,7 +190,26 @@ class arreglo2D_cuadrado(arreglo2D_aleatorio_cm):
 class montecarlo2D(arreglo2D_aleatorio_cm):
 
     def mod_pot(self, distancia):
-        V=distancia
+        if distancia < self.large/2 and distancia < 2*self.r():
+            V =  1e10
+        else:
+            V = 0
+        return V
+
+    def energia3d(self,x,y, rxi, ryi, j):
+        V = 0.
+        N = self.N
+        L = self.L()
+        for i in range(N):
+            if j != i:
+                rxij = rxi - x[i]
+                ryij = ryi - y[i]
+                #condición de imagen mínima
+                rxij = rxij - L * round(rxij/L)
+                ryij = ryij - L * round(ryij/L)
+                rijsq = np.sqrt(rxij*rxij + ryij*ryij)
+                Vij = self.mod_pot(rijsq)
+                V = V + Vij
         return V
 
     def sumaup(self,data):
@@ -198,80 +217,102 @@ class montecarlo2D(arreglo2D_aleatorio_cm):
         i=1
         m=0
         while i<len(data):
-            for j in range(i):
-                    ri=np.array(data[i])
-                    rj=np.array(data[j])
-                    ri = ri - self.large*np.round(ri/self.large)
-                    rj = rj - self.large*np.round(rj/self.large)
-                    rij= ri - rj  
-                    distancia=np.linalg.norm(rij)
-                    Vij = self.mod_pot(distancia)
-                    V = V + Vij
+            for j in range(0,i):
+                ri=np.array(data[i])
+                rj=np.array(data[j])
+                ri = ri - self.large*np.round(ri/self.large)
+                rj = rj - self.large*np.round(rj/self.large)
+                rij= ri - rj  
+                distancia=np.linalg.norm(rij)
+                Vij = self.mod_pot(distancia)
+                V = V + Vij
             i = i+1           
         return V
 
-    def UP(self,i,ri,data):
-        V = 0
-
-        for j in range(0,len(data)):
-            if i != j:
-                ri = ri - self.large*np.round(ri/self.large)
-                rj=np.array(data[j])
-                rj = rj - self.large*(np.round(rj/self.large))
-                rij= ri - rj  
-                distancia=np.linalg.norm(rij)
-                Vij = self.mod_pot(distancia)                
-                V = V + Vij
-        return V
-
-    def algoritmo(self,NSTEP,R_MAX):        
-        k=0
-        data_new = np.array(self.data)
-        data_total = np.zeros((int(NSTEP/self.N),self.N,2))
-        p=0
-        ti = time.time()
-        i=0
-        m=0
-        k=0
-        j=0
-        while k<NSTEP+1:
-            if i%self.N == 0 and i != 0:
-                np.savetxt("./Configs/configuración"+str(j)+".csv", data_new, delimiter=',',fmt='%1.4e')
-                j = j+1
-                i=0
-                
-            N_trazadora=random.randint(0,self.N-1)        
-            ri_old=data_new[N_trazadora]
-            Ui_old = self.UP(N_trazadora,ri_old,data_new)
-            ri_random = np.array((random.random()-0.5,random.random()-0.5))
-            ri_new = ri_old + R_MAX*ri_random
-            ri_new = ri_new + self.large*(-np.round(ri_new/self.large))
-            Ui_new = self.UP(N_trazadora,ri_new,data_new)                
-            delta_u = Ui_new - Ui_old
-            
-            if Ui_new-Ui_old  < 0:
-                data_new[N_trazadora] = ri_new
-                k += 1
-                i +=1
-            elif np.exp(-delta_u) > random.random():
-                data_new[N_trazadora] = ri_new
-                k += 1
-                i +=1
-            else: 
-                m+=1
-                continue
-
-            if i%self.N==0 and i!=0 :
-                p=p+1
-                if p%50==0:
-                    print("Se han traslapdo ",m, " veces en la configuracion",j+1,self.sumaup(data_new))
-                m=0    
-        tf = time.time()
-
-            
-        print("Se ha tardado", round(tf - ti,5), "segundos")
+    def algoritmo(self,x, y, nStep, drMax, iRatio, iPrint, cc, V, iTraza, Vlrc, nener):
+        import random as rd
+        N = self.N
+        L = self.L()
+        rCut = L/2
         
-        return data_new
+        acatma = 0.
+        ki2 = 0
+        xTraza = np.zeros(nStep)
+        yTraza = np.zeros(nStep)
+        zTraza = np.zeros(nStep)
+        vTraza = np.zeros(nStep)
+
+        Cx = np.zeros((N, nStep))
+        Cy = np.zeros((N, nStep))
+
+        #vTraza[0] = V
+        #Vn = np.zeros(nStep+1)
+        #Vn[0] = V
+
+        for i in range(nStep):
+            for j in range(N):
+                xOld = x[j]
+                yOld = y[j]
+
+                Vold = self.energia3d(x,y,xOld, yOld, j)
+                xNew = xOld + ((2.*rd.uniform(0,1) - 1.) *drMax)
+                yNew = yOld + ((2.*rd.uniform(0,1) - 1.) *drMax)
+
+                #condición de imagen mínima
+                xNew = xNew - L * round(xNew/L)
+                yNew = yNew - L * round(yNew/L)
+
+                Vnew = self.energia3d(x,y,xNew, yNew, j)
+
+
+                dV = Vnew - Vold
+
+                if dV < 75.:
+                    if dV <= 0. :
+                        V = V + dV
+                        x[j] = xNew
+                        y[j] = yNew
+                        acatma = acatma + 1
+                    elif np.exp(-dV) > rd.uniform(0,1):
+                        V = V + dV
+                        x[j] = xNew
+                        y[j] = yNew
+
+                        acatma = acatma + 1.
+                        
+                if i > nener:
+                    Cx[j][ki2] = x[j]
+                    Cy[j][ki2] = y[j]
+
+                if j==iTraza:
+                    xTraza[i] = xNew
+                    yTraza[i] = yNew
+
+            Vn = (V + Vlrc)/float(N)
+
+
+            if i % iRatio == 0:
+                ratio = acatma/float((N*iRatio))
+
+                if ratio > cc:
+                    drMax = drMax*1.05
+                else:
+                    drMax = drMax*0.95
+                acatma = 0.
+
+            if i % iPrint == 0:
+                print("Se han traslapdo ",acatma, " veces en la configuracion",i)
+            vTraza[i] = Vn
+
+            if i > nener:
+                ki2 = ki2 + 1
+            #    for k in range(N):
+            #        Cx[k, ki2] = x[k]
+            #        Cy[k, ki2] = y[k]
+            #        Cz[k, ki2] = z[k]
+
+
+        return x, y, xTraza, yTraza, vTraza, Cx, Cy, ki2
 
     def trazadora(self,data,rand):
         k=0
